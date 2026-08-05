@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "chapters": [
+    {
+      "id": "01",
+      "file": "chapters/ch01.md",
+      "title": "第一章　外币会计（共45题）",
+      "questionCount": 45
+    },
+    {
+      "id": "02",
+      "file": "chapters/ch02.md",
+      "title": "第二章　企业合并（共35题）",
+      "questionCount": 35
+    },
+    {
+      "id": "03",
+      "file": "chapters/ch03.md",
+      "title": "第三章　合并财务报表——控制权取得日的合并财务报表（共34题）",
+      "questionCount": 34
+    },
+    {
+      "id": "04",
+      "file": "chapters/ch04.md",
+      "title": "第四章　合并财务报表——控制权取得日后的合并财务报表（共45题）",
+      "questionCount": 45
+    },
+    {
+      "id": "05",
+      "file": "chapters/ch05.md",
+      "title": "第五章　合并财务报表——集团内部交易事项的抵销（共42题）",
+      "questionCount": 42
+    },
+    {
+      "id": "06",
+      "file": "chapters/ch06.md",
+      "title": "第六章　衍生金融工具会计（共28题）",
+      "questionCount": 28
+    },
+    {
+      "id": "07",
+      "file": "chapters/ch07.md",
+      "title": "第七章　租赁会计（共28题）",
+      "questionCount": 28
+    },
+    {
+      "id": "08",
+      "file": "chapters/ch08.md",
+      "title": "第八章　所得税会计（共32题）",
+      "questionCount": 32
+    },
+    {
+      "id": "09",
+      "file": "chapters/ch09.md",
+      "title": "第九章　清算会计（共24题）",
+      "questionCount": 24
+    }
+  ]
+}
