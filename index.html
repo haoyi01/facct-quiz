@@ -222,8 +222,12 @@ select{
     for (var bi = 0; bi < chaptersRaw.length; bi++) {
       var block = chaptersRaw[bi];
       if (!block.trim()) continue;
-      var firstLine = block.split("\n")[0].trim();
-      if (firstLine.indexOf("13140") === 0 || firstLine.charAt(0) === "#") continue;
+      // 单章文件以 "## 第一章…" 开头；整包拆分后块内无 ## 前缀。统一去掉标题前的 #。
+      var firstLine = block
+        .split("\n")[0]
+        .trim()
+        .replace(/^#+\s*/, "");
+      if (firstLine.indexOf("13140") === 0) continue;
       if (firstLine.indexOf("附") >= 0 && firstLine.indexOf("录") >= 0) continue;
       if (firstLine.indexOf("第") !== 0) continue;
 
