@@ -18,12 +18,12 @@ https://haoyi01.github.io/facct-quiz/
 
 ## 如何改题
 
-1. 编辑 `questions.md`
-2. 本地运行：`node split-md.js`（生成/更新 `chapters/` 与 `manifest.json`）
-3. 提交推送到 `main`
+1. 在 GitHub 网页上编辑 `questions.md` 并 Commit
+2. 仓库会**自动**跑 `split-md.js`，更新 `chapters/` 与 `manifest.json`（无需本机安装 Node）
+3. 也可手动触发：仓库 → Actions → **Split questions.md** → Run workflow
 4. 打开答题页，点「清除缓存并重载」
 
-也可直接改某个 `chapters/chXX.md`，同时更新 `manifest.json` 里的 `questionCount`。
+本地若有 Node，也可自行执行：`node split-md.js`
 
 ## 性能说明
 
