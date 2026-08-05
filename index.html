@@ -27,7 +27,6 @@ select{
   -webkit-tap-highlight-color:transparent;
 }
 .btn-primary{background:#0d6e6e;color:#fff}
-.btn-primary:hover{background:#0a5a5a}
 .btn-ghost{background:#fff;color:#1a2332;border:1px solid #d8e0e8}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .filter-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
@@ -54,7 +53,7 @@ select{
 .opt{
   display:flex;align-items:flex-start;gap:12px;padding:14px;
   border:1.5px solid #d8e0e8;border-radius:10px;cursor:pointer;
-  -webkit-tap-highlight-color:transparent;transition:border-color .15s,background .15s;
+  -webkit-tap-highlight-color:transparent;
 }
 .opt:hover{border-color:#0d6e6e;background:#f7fbfb}
 .opt.selected{border-color:#0d6e6e;background:#e6f3f3}
@@ -77,9 +76,6 @@ select{
   background:#1a2332;color:#e8eef4;padding:12px 14px;border-radius:8px;
   overflow-x:auto;font-size:.85rem;margin:8px 0;white-space:pre-wrap;
 }
-.explanation table{border-collapse:collapse;width:100%;margin:10px 0;font-size:.88rem}
-.explanation th,.explanation td{border:1px solid #d8e0e8;padding:6px 10px;text-align:left}
-.explanation th{background:#f0f4f8}
 .explanation blockquote{border-left:3px solid #0d6e6e;padding-left:12px;color:#5a6a7a;margin:8px 0}
 .nav-row{display:flex;justify-content:space-between;gap:10px;margin-top:18px}
 .summary{display:none}
@@ -95,14 +91,14 @@ select{
 <body>
 <div class="app">
   <h1>财务会计（中级）答题练习</h1>
-  <p class="sub">打开页面时自动读取仓库中的 <code>questions.md</code> 生成题目</p>
-  <p class="tip">更新题目：修改仓库里的 <b>questions.md</b> 并提交后，刷新本页即可（可能需强制刷新）。</p>
+  <p class="sub" id="subLine">按章懒加载 · 本地缓存已解析题目</p>
+  <p class="tip">题库按章节拆分加载，只下载当前章。修改题库后点「清除缓存并重载」。完整源文件仍为 <b>questions.md</b>（可用 split-md.js 重新拆章）。</p>
   <div class="err" id="errBox"></div>
 
   <div id="mainUi" class="ui-hidden">
     <div class="toolbar">
       <select id="chapterSelect" aria-label="章节"></select>
-      <button class="btn btn-ghost" id="btnReload" type="button">重新加载 MD</button>
+      <button class="btn btn-ghost" id="btnReload" type="button">清除缓存并重载</button>
       <button class="btn btn-ghost" id="btnReset" type="button">重置本章</button>
       <button class="btn btn-ghost" id="btnSummary" type="button">查看成绩</button>
     </div>
@@ -119,7 +115,7 @@ select{
       <span>正确 <strong id="statOk" style="color:#1b7a3d">0</strong></span>
       <span>错误 <strong id="statBad" style="color:#c0392b">0</strong></span>
     </div>
-    <div id="quizArea" class="card"><div class="empty">正在从 questions.md 加载…</div></div>
+    <div id="quizArea" class="card"><div class="empty">准备加载…</div></div>
     <div id="summaryArea" class="card summary"></div>
   </div>
 </div>
@@ -128,12 +124,6 @@ select{
 (function () {
   "use strict";
 
-  var MD_URLS = [
-    "./questions.md",
-    "questions.md",
-    "https://raw.githubusercontent.com/haoyi01/facct-quiz/main/questions.md"
-  ];
-
   var TYPE_LABEL = {
     single: "单项选择题",
     multi: "多项选择题",
@@ -141,12 +131,15 @@ select{
     calc: "计算分析题"
   };
 
+  /** @type {{id:string,file:string,title:string,questionCount:number,questions:any[]|null}[]} */
   var CHAPTERS = [];
   var chapIdx = 0;
   var qIdx = 0;
   var typeFilter = "all";
+  var loadingChapter = false;
   var mem = {};
   var progress = loadP();
+  var CACHE_PREFIX = "facct_ch_v2_";
 
   function showErr(m) {
     var b = document.getElementById("errBox");
@@ -158,10 +151,9 @@ select{
     b.style.display = "none";
     b.textContent = "";
   }
-
   function loadP() {
     try {
-      var s = localStorage.getItem("facct_quiz_md_v1");
+      var s = localStorage.getItem("facct_quiz_progress_v2");
       if (s) return JSON.parse(s);
     } catch (e) {}
     return mem;
@@ -169,11 +161,61 @@ select{
   function saveP(p) {
     mem = p;
     try {
-      localStorage.setItem("facct_quiz_md_v1", JSON.stringify(p));
+      localStorage.setItem("facct_quiz_progress_v2", JSON.stringify(p));
     } catch (e) {}
   }
 
-  /** Parse quiz markdown → chapters[] */
+  function simpleHash(str) {
+    var h = 0;
+    for (var i = 0; i < str.length; i++) {
+      h = (h << 5) - h + str.charCodeAt(i);
+      h |= 0;
+    }
+    return String(h);
+  }
+
+  function cacheGet(file, hash) {
+    try {
+      var raw = localStorage.getItem(CACHE_PREFIX + file);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (obj && obj.hash === hash && obj.questions) return obj.questions;
+    } catch (e) {}
+    return null;
+  }
+  function cacheSet(file, hash, questions) {
+    try {
+      localStorage.setItem(
+        CACHE_PREFIX + file,
+        JSON.stringify({ hash: hash, questions: questions, ts: Date.now() })
+      );
+    } catch (e) {
+      // quota — drop oldest chapter caches
+      try {
+        for (var i = localStorage.length - 1; i >= 0; i--) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k);
+        }
+        localStorage.setItem(
+          CACHE_PREFIX + file,
+          JSON.stringify({ hash: hash, questions: questions, ts: Date.now() })
+        );
+      } catch (e2) {}
+    }
+  }
+  function cacheClearAll() {
+    try {
+      var keys = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(CACHE_PREFIX) === 0) keys.push(k);
+      }
+      keys.forEach(function (k) {
+        localStorage.removeItem(k);
+      });
+    } catch (e) {}
+  }
+
   function parseMarkdown(text) {
     var chaptersRaw = text.split(/\n## /);
     var chapters = [];
@@ -201,7 +243,6 @@ select{
           explanation: m[3].trim().replace(/\n---+\s*$/, "").trim()
         };
       }
-      // 兼容 **10.【计算分析题答案】** 与扩充版 **35.【答案】**
       var re2 = /\*\*(\d+)\.【(?:计算分析题)?答案】\*\*\s*([\s\S]*?)(?=\n\*\*\d+\.|\n---+\s*\n## |\n---+\s*$|$)/g;
       while ((m = re2.exec(aPart))) {
         answers[+m[1]] = {
@@ -317,20 +358,14 @@ select{
   }
   function eq(a, b) {
     return (
-      a
-        .slice()
-        .map(String)
-        .sort()
-        .join(",") ===
-      b
-        .slice()
-        .map(String)
-        .sort()
-        .join(",")
+      a.slice().map(String).sort().join(",") ===
+      b.slice().map(String).sort().join(",")
     );
   }
   function filtered() {
-    var qs = CHAPTERS[chapIdx].questions;
+    var ch = CHAPTERS[chapIdx];
+    if (!ch || !ch.questions) return [];
+    var qs = ch.questions;
     if (typeFilter === "all") return qs;
     var o = [];
     for (var i = 0; i < qs.length; i++) if (qs[i].type === typeFilter) o.push(qs[i]);
@@ -356,7 +391,40 @@ select{
       (qs.length ? (done / qs.length) * 100 : 0) + "%";
   }
 
-  function bindUi() {
+  function fetchText(url) {
+    return fetch(url, { cache: "no-store" }).then(function (res) {
+      if (!res.ok) throw new Error(url + " → HTTP " + res.status);
+      return res.text();
+    });
+  }
+
+  function ensureChapter(idx, bustCache) {
+    var ch = CHAPTERS[idx];
+    if (!ch) return Promise.reject(new Error("无效章节"));
+    if (ch.questions && !bustCache) return Promise.resolve(ch);
+
+    var url = ch.file + (bustCache ? "?t=" + Date.now() : "");
+    return fetchText(url).then(function (text) {
+      var hash = simpleHash(text);
+      if (!bustCache) {
+        var cached = cacheGet(ch.file, hash);
+        if (cached) {
+          ch.questions = cached;
+          return ch;
+        }
+      }
+      var parsed = parseMarkdown(text);
+      if (!parsed.length || !parsed[0].questions.length) {
+        throw new Error("章节解析为空：" + ch.file);
+      }
+      ch.questions = parsed[0].questions;
+      ch.title = parsed[0].title || ch.title;
+      cacheSet(ch.file, hash, ch.questions);
+      return ch;
+    });
+  }
+
+  function fillSelect() {
     var sel = document.getElementById("chapterSelect");
     sel.innerHTML = CHAPTERS.map(function (c, i) {
       return (
@@ -365,16 +433,42 @@ select{
         '">' +
         c.title +
         "（" +
-        c.questions.length +
+        (c.questionCount || "?") +
         "题）</option>"
       );
     }).join("");
-    sel.onchange = function () {
-      chapIdx = +sel.value;
-      qIdx = 0;
-      render();
-    };
+  }
 
+  function switchChapter(idx, bust) {
+    if (loadingChapter) return;
+    loadingChapter = true;
+    chapIdx = idx;
+    qIdx = 0;
+    var area = document.getElementById("quizArea");
+    area.innerHTML = '<div class="empty">正在加载本章题目…</div>';
+    ensureChapter(idx, !!bust)
+      .then(function (ch) {
+        document.getElementById("subLine").textContent =
+          "当前：已加载本章 " +
+          ch.questions.length +
+          " 题（按章懒加载，共 " +
+          CHAPTERS.length +
+          " 章）";
+        render();
+      })
+      .catch(function (e) {
+        showErr(String(e.message || e));
+        area.innerHTML = '<div class="empty">本章加载失败</div>';
+      })
+      .then(function () {
+        loadingChapter = false;
+      });
+  }
+
+  function bindUi() {
+    document.getElementById("chapterSelect").onchange = function () {
+      switchChapter(+this.value, false);
+    };
     document.getElementById("typeFilter").onclick = function (e) {
       var t = e.target;
       if (!t || t.tagName !== "BUTTON" || !t.getAttribute("data-type")) return;
@@ -386,8 +480,9 @@ select{
       render();
     };
     document.getElementById("btnReset").onclick = function () {
-      var qs = CHAPTERS[chapIdx].questions;
-      for (var i = 0; i < qs.length; i++) delete progress[qs[i].id];
+      var ch = CHAPTERS[chapIdx];
+      if (!ch || !ch.questions) return;
+      for (var i = 0; i < ch.questions.length; i++) delete progress[ch.questions[i].id];
       saveP(progress);
       qIdx = 0;
       render();
@@ -396,7 +491,12 @@ select{
       showSummary();
     };
     document.getElementById("btnReload").onclick = function () {
-      loadQuiz(true);
+      cacheClearAll();
+      CHAPTERS.forEach(function (c) {
+        c.questions = null;
+      });
+      clearErr();
+      switchChapter(chapIdx, true);
     };
   }
 
@@ -406,6 +506,10 @@ select{
     area.style.display = "block";
     var qs = filtered();
     updateStats();
+    if (!CHAPTERS[chapIdx] || !CHAPTERS[chapIdx].questions) {
+      area.innerHTML = '<div class="empty">正在加载…</div>';
+      return;
+    }
     if (!qs.length) {
       area.innerHTML = '<div class="empty">当前筛选下暂无题目</div>';
       return;
@@ -601,130 +705,131 @@ select{
       sum = document.getElementById("summaryArea");
     area.style.display = "none";
     sum.className = "card summary show";
-    var totalOk = 0,
-      totalBad = 0,
-      totalAns = 0,
-      totalAll = 0,
-      html = "";
-    for (var ci = 0; ci < CHAPTERS.length; ci++) {
-      var c = CHAPTERS[ci],
-        ok = 0,
-        bad = 0,
-        ans = 0,
-        scorable = 0;
-      for (var qi = 0; qi < c.questions.length; qi++) {
-        var q = c.questions[qi];
-        if (q.type === "calc") continue;
-        scorable++;
-        var p = progress[q.id];
-        if (p && p.answered) {
-          ans++;
-          if (p.correct) ok++;
-          else bad++;
-        }
-      }
-      totalAll += scorable;
-      totalOk += ok;
-      totalBad += bad;
-      totalAns += ans;
-      var rate = ans ? Math.round((ok / ans) * 100) : 0;
-      html +=
-        '<p style="margin:8px 0"><strong>' +
-        c.title +
-        "</strong>：已答 " +
-        ans +
-        "/" +
-        scorable +
-        "，正确 " +
-        ok +
-        "，正确率 " +
-        rate +
-        "%</p>";
-    }
-    var rateAll = totalAns ? Math.round((totalOk / totalAns) * 100) : 0;
-    sum.innerHTML =
-      '<div class="score-big">' +
-      rateAll +
-      "%</div>" +
-      '<p style="margin-bottom:16px;color:#5a6a7a">已答 ' +
-      totalAns +
-      " / " +
-      totalAll +
-      " 道客观题 · 正确 " +
-      totalOk +
-      " · 错误 " +
-      totalBad +
-      "</p>" +
-      html +
-      '<div class="actions"><button class="btn btn-primary" id="btnBackQuiz" type="button">返回答题</button>' +
-      '<button class="btn btn-ghost" id="btnClearAll" type="button">清空全部进度</button></div>';
-    document.getElementById("btnBackQuiz").onclick = function () {
-      sum.className = "card summary";
-      area.style.display = "block";
-      render();
-    };
-    document.getElementById("btnClearAll").onclick = function () {
-      if (confirm("确定清空全部答题进度？")) {
-        progress = {};
-        saveP(progress);
-        showSummary();
-        updateStats();
-      }
-    };
-  }
 
-  function fetchText(url) {
-    return fetch(url, { cache: "no-store" }).then(function (res) {
-      if (!res.ok) throw new Error(url + " → HTTP " + res.status);
-      return res.text();
+    // Load all chapters for accurate summary (lazy)
+    var chain = Promise.resolve();
+    CHAPTERS.forEach(function (c, i) {
+      chain = chain.then(function () {
+        return ensureChapter(i, false);
+      });
     });
+    sum.innerHTML = '<div class="empty">汇总成绩中，正在补全未加载章节…</div>';
+    chain
+      .then(function () {
+        var totalOk = 0,
+          totalBad = 0,
+          totalAns = 0,
+          totalAll = 0,
+          html = "";
+        for (var ci = 0; ci < CHAPTERS.length; ci++) {
+          var c = CHAPTERS[ci],
+            ok = 0,
+            bad = 0,
+            ans = 0,
+            scorable = 0;
+          for (var qi = 0; qi < c.questions.length; qi++) {
+            var q = c.questions[qi];
+            if (q.type === "calc") continue;
+            scorable++;
+            var p = progress[q.id];
+            if (p && p.answered) {
+              ans++;
+              if (p.correct) ok++;
+              else bad++;
+            }
+          }
+          totalAll += scorable;
+          totalOk += ok;
+          totalBad += bad;
+          totalAns += ans;
+          var rate = ans ? Math.round((ok / ans) * 100) : 0;
+          html +=
+            '<p style="margin:8px 0"><strong>' +
+            c.title +
+            "</strong>：已答 " +
+            ans +
+            "/" +
+            scorable +
+            "，正确 " +
+            ok +
+            "，正确率 " +
+            rate +
+            "%</p>";
+        }
+        var rateAll = totalAns ? Math.round((totalOk / totalAns) * 100) : 0;
+        sum.innerHTML =
+          '<div class="score-big">' +
+          rateAll +
+          "%</div>" +
+          '<p style="margin-bottom:16px;color:#5a6a7a">已答 ' +
+          totalAns +
+          " / " +
+          totalAll +
+          " 道客观题 · 正确 " +
+          totalOk +
+          " · 错误 " +
+          totalBad +
+          "</p>" +
+          html +
+          '<div class="actions"><button class="btn btn-primary" id="btnBackQuiz" type="button">返回答题</button>' +
+          '<button class="btn btn-ghost" id="btnClearAll" type="button">清空全部进度</button></div>';
+        document.getElementById("btnBackQuiz").onclick = function () {
+          sum.className = "card summary";
+          area.style.display = "block";
+          render();
+        };
+        document.getElementById("btnClearAll").onclick = function () {
+          if (confirm("确定清空全部答题进度？")) {
+            progress = {};
+            saveP(progress);
+            showSummary();
+            updateStats();
+          }
+        };
+      })
+      .catch(function (e) {
+        showErr(String(e.message || e));
+      });
   }
 
-  function loadQuiz(force) {
+  function boot() {
     clearErr();
     document.getElementById("mainUi").classList.remove("ui-hidden");
     document.getElementById("quizArea").innerHTML =
-      '<div class="empty">正在从 questions.md 加载…</div>';
+      '<div class="empty">正在读取章节目录…</div>';
 
-    var i = 0;
-    function tryNext() {
-      if (i >= MD_URLS.length) {
+    fetchText("./manifest.json")
+      .catch(function () {
+        return fetchText("manifest.json");
+      })
+      .then(function (text) {
+        var man = JSON.parse(text);
+        CHAPTERS = (man.chapters || []).map(function (c) {
+          return {
+            id: c.id,
+            file: c.file,
+            title: c.title,
+            questionCount: c.questionCount,
+            questions: null
+          };
+        });
+        if (!CHAPTERS.length) throw new Error("manifest 无章节");
+        fillSelect();
+        bindUi();
+        switchChapter(0, false);
+      })
+      .catch(function (e) {
         showErr(
-          "无法加载 questions.md。请确认仓库根目录存在该文件，且通过网页（非本地双击 file://）打开。"
+          "无法加载 manifest.json / 章节文件。\n" +
+            String(e.message || e) +
+            "\n请确认仓库含 chapters/ 与 manifest.json。"
         );
         document.getElementById("quizArea").innerHTML =
           '<div class="empty">加载失败</div>';
-        return;
-      }
-      var url = MD_URLS[i++] + (force ? "?t=" + Date.now() : "");
-      fetchText(url)
-        .then(function (text) {
-          CHAPTERS = parseMarkdown(text);
-          var total = CHAPTERS.reduce(function (s, c) {
-            return s + c.questions.length;
-          }, 0);
-          if (!CHAPTERS.length || !total)
-            throw new Error("MD 已读取，但未解析出题目，请检查格式");
-          chapIdx = 0;
-          qIdx = 0;
-          bindUi();
-          render();
-          document.querySelector(".sub").textContent =
-            "已从 questions.md 加载 " +
-            CHAPTERS.length +
-            " 章 / " +
-            total +
-            " 题 · 修改 MD 后点「重新加载 MD」或刷新页面";
-        })
-        .catch(function (e) {
-          console.warn(e);
-          tryNext();
-        });
-    }
-    tryNext();
+      });
   }
 
-  loadQuiz(false);
+  boot();
 })();
 </script>
 </body>
