@@ -1,2 +1,1 @@
-# facct-quiz
-财务会计（中级）答题练习
+# 财务会计（中级）答题练习\n\n在线打开：https://haoyi01.github.io/facct-quiz/\n
